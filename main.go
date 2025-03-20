@@ -3,11 +3,12 @@ package main
 import (
 	"log"
 	"os"
-
+	"net/http"  // ✅ إضافة http
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	_ "modernc.org/sqlite" // SQLite بدون CGO
+	"golang.org/x/crypto/bcrypt" // ✅ إضافة bcrypt
+	_ "modernc.org/sqlite"       // ✅ دعم SQLite بدون CGO
 )
 
 
