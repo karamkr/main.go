@@ -2,41 +2,53 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
-	"net/http"  // ✅ إضافة http
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"golang.org/x/crypto/bcrypt" // ✅ إضافة bcrypt
-	_ "modernc.org/sqlite"       // ✅ دعم SQLite بدون CGO
+	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite" // تشغيل SQLite بدون CGO
 )
 
-
+// ✅ تعريف نموذج المستخدم
 type User struct {
 	ID       uint   `gorm:"primaryKey"`
 	Email    string `gorm:"unique"`
 	Password string
 }
 
+// ✅ تعريف متغير قاعدة البيانات
 var db *gorm.DB
 
 func main() {
-	var err error
-	db, err = gorm.Open(sqlite.Open("file:users.db?mode=memory&cache=shared"), &gorm.Config{})
-	if err != nil {
-		panic("فشل في الاتصال بقاعدة البيانات")
+	// ✅ الحصول على المنفذ من متغير البيئة (لتشغيله على Railway)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // القيمة الافتراضية إذا لم يتم تحديدها
 	}
 
+	var err error
+	db, err = gorm.Open(sqlite.Open("users.db"), &gorm.Config{})
+	if err != nil {
+		log.Fatal("فشل في الاتصال بقاعدة البيانات:", err)
+	}
+
+	// ✅ إنشاء جدول المستخدمين
 	db.AutoMigrate(&User{})
 
+	// ✅ إعداد الـ API باستخدام Gin
 	r := gin.Default()
-
 	r.POST("/login", loginHandler)
 	r.POST("/signup", signupHandler)
 
-	r.Run(":8080")
+	// ✅ تشغيل السيرفر
+	log.Println("🚀 Running on port:", port)
+	r.Run(":" + port)
 }
 
+// ✅ دالة تسجيل الدخول
 func loginHandler(c *gin.Context) {
 	var userInput User
 	if err := c.ShouldBindJSON(&userInput); err != nil {
@@ -46,13 +58,12 @@ func loginHandler(c *gin.Context) {
 
 	var user User
 	result := db.Where("email = ?", userInput.Email).First(&user)
-
 	if result.Error != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 		return
 	}
 
-	// 🔹 مقارنة كلمة المرور المُدخلة بالمحفوظة (المشفرة)
+	// ✅ مقارنة كلمة المرور المشفرة
 	err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(userInput.Password))
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
@@ -62,6 +73,7 @@ func loginHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
 }
 
+// ✅ دالة إنشاء حساب
 func signupHandler(c *gin.Context) {
 	var userInput User
 	if err := c.ShouldBindJSON(&userInput); err != nil {
@@ -69,6 +81,7 @@ func signupHandler(c *gin.Context) {
 		return
 	}
 
+	// ✅ تشفير كلمة المرور قبل الحفظ
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(userInput.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error hashing password"})
@@ -76,11 +89,12 @@ func signupHandler(c *gin.Context) {
 	}
 	userInput.Password = string(hashedPassword)
 
+	// ✅ إضافة المستخدم إلى قاعدة البيانات
 	result := db.Create(&userInput)
-
 	if result.Error != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
-	} else {
-		c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
+		return
 	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
 }
