@@ -10,6 +10,7 @@ import (
 	_ "modernc.org/sqlite" // SQLite بدون CGO
 )
 
+
 type User struct {
 	ID       uint   `gorm:"primaryKey"`
 	Email    string `gorm:"unique"`
@@ -20,7 +21,7 @@ var db *gorm.DB
 
 func main() {
 	var err error
-	db, err = gorm.Open(sqlite.Open("users.db"), &gorm.Config{})
+	db, err = gorm.Open(sqlite.Open("file:users.db?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		panic("فشل في الاتصال بقاعدة البيانات")
 	}
