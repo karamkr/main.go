@@ -1,12 +1,13 @@
 package main
 
 import (
-	"net/http"
+	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	_ "modernc.org/sqlite" // SQLite بدون CGO
 )
 
 type User struct {
