@@ -19,11 +19,11 @@ type User struct {
 	Password string
 }
 
-// ✅ قاعدة البيانات
+// ✅ متغير قاعدة البيانات
 var db *gorm.DB
 
 func main() {
-	// ✅ تحديد المنفذ
+	// ✅ الحصول على المنفذ من متغير البيئة
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -31,15 +31,13 @@ func main() {
 
 	// ✅ الاتصال بقاعدة البيانات
 	var err error
-	db, err = gorm.Open(sqlite.Dialector{DSN: "users.db"}, &gorm.Config{})
+	db, err = gorm.Open(sqlite.Open("users.db"), &gorm.Config{}) // ✅ التصحيح هنا
 	if err != nil {
 		log.Fatal("فشل في الاتصال بقاعدة البيانات:", err)
 	}
 
 	// ✅ إنشاء الجدول إذا لم يكن موجودًا
-	if !db.Migrator().HasTable(&User{}) {
-		db.AutoMigrate(&User{})
-	}
+	db.AutoMigrate(&User{})
 
 	// ✅ إعداد API
 	r := gin.Default()
@@ -48,7 +46,7 @@ func main() {
 
 	// ✅ تشغيل الخادم
 	log.Println("🚀 Running on port:", port)
-	r.Run()
+	r.Run(":" + port)
 }
 
 // ✅ دالة تسجيل الدخول
