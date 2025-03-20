@@ -1,45 +1,73 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	_ "modernc.org/sqlite" // تشغيل SQLite بدون CGO
 )
+
+// ✅ ملف تخزين المستخدمين
+const usersFile = "users.json"
 
 // ✅ نموذج المستخدم
 type User struct {
-	ID       uint   `gorm:"primaryKey"`
-	Email    string `gorm:"unique"`
-	Password string
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
-// ✅ متغير قاعدة البيانات
-var db *gorm.DB
+// ✅ قائمة المستخدمين في الذاكرة
+var users []User
+var mutex sync.Mutex // منع التعديل المتزامن على الملف
+
+// ✅ تحميل المستخدمين من JSON عند بدء التشغيل
+func loadUsers() error {
+	file, err := os.Open(usersFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil // إذا لم يكن الملف موجودًا، لا توجد مشكلة
+		}
+		return err
+	}
+	defer file.Close()
+
+	return json.NewDecoder(file).Decode(&users)
+}
+
+// ✅ حفظ المستخدمين إلى JSON
+func saveUsers() error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	file, err := os.Create(usersFile)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ") // جعل JSON أكثر قابلية للقراءة
+	return encoder.Encode(users)
+}
 
 func main() {
-	// ✅ الحصول على المنفذ من متغير البيئة
+	// ✅ تحميل البيانات عند بدء التشغيل
+	if err := loadUsers(); err != nil {
+		log.Fatal("❌ فشل في تحميل المستخدمين:", err)
+	}
+
+	// ✅ الحصول على المنفذ من البيئة
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	// ✅ الاتصال بقاعدة البيانات
-	var err error
-	db, err = gorm.Open(sqlite.Open("users.db"), &gorm.Config{}) // ✅ التصحيح هنا
-	if err != nil {
-		log.Fatal("فشل في الاتصال بقاعدة البيانات:", err)
-	}
-
-	// ✅ إنشاء الجدول إذا لم يكن موجودًا
-	db.AutoMigrate(&User{})
-
-	// ✅ إعداد API
+	// ✅ إعداد API باستخدام Gin
 	r := gin.Default()
 	r.POST("/login", loginHandler)
 	r.POST("/signup", signupHandler)
@@ -57,21 +85,18 @@ func loginHandler(c *gin.Context) {
 		return
 	}
 
-	var user User
-	result := db.Where("email = ?", userInput.Email).First(&user)
-	if result.Error != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
-		return
+	// ✅ البحث عن المستخدم في JSON
+	for _, user := range users {
+		if user.Email == userInput.Email {
+			err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(userInput.Password))
+			if err == nil {
+				c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
+				return
+			}
+		}
 	}
 
-	// ✅ مقارنة كلمة المرور
-	err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(userInput.Password))
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
+	c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 }
 
 // ✅ دالة إنشاء حساب
@@ -82,14 +107,15 @@ func signupHandler(c *gin.Context) {
 		return
 	}
 
-	// ✅ التحقق من البريد الإلكتروني
-	var existingUser User
-	if db.Where("email = ?", userInput.Email).First(&existingUser).Error == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
-		return
+	// ✅ التحقق من وجود البريد مسبقًا
+	for _, user := range users {
+		if user.Email == userInput.Email {
+			c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
+			return
+		}
 	}
 
-	// ✅ تشفير كلمة المرور
+	// ✅ تشفير كلمة المرور قبل الحفظ
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(userInput.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error hashing password"})
@@ -97,7 +123,12 @@ func signupHandler(c *gin.Context) {
 	}
 	userInput.Password = string(hashedPassword)
 
-	// ✅ حفظ المستخدم الجديد
-	db.Create(&userInput)
+	// ✅ إضافة المستخدم الجديد
+	users = append(users, userInput)
+	if err := saveUsers(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error saving user"})
+		return
+	}
+
 	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
 }
